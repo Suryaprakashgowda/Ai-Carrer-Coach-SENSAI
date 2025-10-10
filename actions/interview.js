@@ -106,8 +106,8 @@ function fallbackQuestionsForIndustry(industry, skills = []) {
   ];
 
   // ensure we return 5 questions: replicate or slightly vary
-  while (base.length < 5) base.push({ ...base[base.length - 1] });
-  return base.slice(0, 5).map((q) => ({ ...q }));
+  while (base.length < 10) base.push({ ...base[base.length - 1] });
+  return base.slice(0, 10).map((q) => ({ ...q }));
 }
 
 export async function generateQuiz() {

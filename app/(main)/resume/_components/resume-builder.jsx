@@ -60,6 +60,9 @@ export default function ResumeBuilder({ initialContent }) {
 
   const [improveTarget, setImproveTarget] = useState(null);
 
+  // Watch form fields for preview updates (declare early so effects can reference it)
+  const formValues = watch();
+
   // Populate simple fields from initial markdown (summary, skills, contact)
   useEffect(() => {
     if (!initialContent) return;
@@ -139,9 +142,6 @@ export default function ResumeBuilder({ initialContent }) {
     data: saveResult,
     error: saveError,
   } = useFetch(saveResume);
-
-  // Watch form fields for preview updates
-  const formValues = watch();
 
   useEffect(() => {
     if (initialContent) setActiveTab("preview");
