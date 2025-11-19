@@ -195,6 +195,96 @@ export default function ResumeBuilder({ initialContent }) {
       .join("\n\n");
   };
 
+  // Parse markdown sections into structured form values including entries with current flag
+  const parseMarkdownToForm = (md) => {
+    if (!md) return null;
+
+    const extractSection = (title) => {
+      const re = new RegExp(`##\\s*${title}\\s*\\n([\\s\\S]*?)(?=\\n##|$)`, "i");
+      const m = md.match(re);
+      return m ? m[1].trim() : "";
+    };
+
+    const parseEntries = (sectionText) => {
+      if (!sectionText) return [];
+      const parts = sectionText.split(/^###\s+/m).map((p) => p.trim()).filter(Boolean);
+      return parts.map((block) => {
+        const lines = block.split(/\n/).map((l) => l.trim()).filter(Boolean);
+        const firstLine = lines.shift() || "";
+
+        // attempt to parse title and organization
+        let title = firstLine;
+        let organization = "";
+        const sepMatch = firstLine.match(/\s@\s|\s-\s|\s\|\s|\s—\s/);
+        if (sepMatch) {
+          const parts = firstLine.split(sepMatch[0]);
+          title = parts[0].trim();
+          organization = parts[1] ? parts[1].trim() : "";
+        }
+
+        // parse dates from subsequent lines or parenthesis in first line
+        let startDate = "";
+        let endDate = "";
+        const dateLine = lines.find((l) => /\d{4}|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec/i.test(l)) || "";
+        if (dateLine) {
+          const dates = dateLine.match(/([A-Za-z]{3,9}\s\d{4}|\d{4}|\d{4}-\d{2})/g);
+          if (dates && dates.length >= 1) {
+            startDate = dates[0];
+            if (dates.length >= 2) endDate = dates[1];
+            else if (/present|current/i.test(dateLine)) endDate = "";
+          }
+        } else {
+          const paren = firstLine.match(/\(([^)]+)\)/);
+          if (paren) {
+            const split = paren[1].split(/[-–—]/).map(s => s.trim());
+            startDate = split[0] || "";
+            endDate = split[1] || "";
+          }
+        }
+
+        // determine current flag
+        let current = false;
+        if (!endDate || /present|current/i.test(endDate)) {
+          current = true;
+          endDate = "";
+        }
+
+        const description = lines.filter((l) => l !== dateLine).join("\n");
+
+        return { title, organization, startDate, endDate, current, description };
+      });
+    };
+
+    return {
+      summary: extractSection("Professional Summary") || "",
+      skills: extractSection("Skills") || "",
+      contactInfo: {
+        email: (md.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/) || [""])[0],
+        mobile: (md.match(/\+?[0-9][0-9()\-\s]{6,}/) || [""])[0],
+        linkedin: (md.match(/https?:\/\/[^\s]*linkedin.com[^\s]*/i) || [""])[0],
+        twitter: (md.match(/https?:\/\/[^\s]*twitter.com[^\s]*/i) || [""])[0],
+      },
+      experience: parseEntries(extractSection("Work Experience")),
+      education: parseEntries(extractSection("Education")),
+      projects: parseEntries(extractSection("Projects")),
+    };
+  };
+
+  // Populate entry arrays when initialContent is provided so saved resumes display in the form
+  useEffect(() => {
+    if (!initialContent) return;
+    try {
+      const parsed = parseMarkdownToForm(initialContent);
+      if (parsed) {
+        setValue("experience", parsed.experience || []);
+        setValue("education", parsed.education || []);
+        setValue("projects", parsed.projects || []);
+      }
+    } catch (e) {
+      console.error("Failed to parse entries from initialContent", e);
+    }
+  }, [initialContent, setValue]);
+
   const [isGenerating, setIsGenerating] = useState(false);
 
   const generatePDF = async () => {
