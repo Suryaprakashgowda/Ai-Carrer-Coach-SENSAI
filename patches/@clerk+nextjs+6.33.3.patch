@@ -1,0 +1,13 @@
+diff --git a/node_modules/@clerk/nextjs/dist/esm/server/keyless-custom-headers.js b/node_modules/@clerk/nextjs/dist/esm/server/keyless-custom-headers.js
+index 11ccc7a..8994dad 100644
+--- a/node_modules/@clerk/nextjs/dist/esm/server/keyless-custom-headers.js
++++ b/node_modules/@clerk/nextjs/dist/esm/server/keyless-custom-headers.js
+@@ -67,7 +67,7 @@ function getNextVersion() {
+     return void 0;
+   }
+ }
+-function formatMetadataHeaders(metadata) {
++async function formatMetadataHeaders(metadata) {
+   const headers2 = new Headers();
+   if (metadata.nodeVersion) {
+     headers2.set("Clerk-Node-Version", metadata.nodeVersion);

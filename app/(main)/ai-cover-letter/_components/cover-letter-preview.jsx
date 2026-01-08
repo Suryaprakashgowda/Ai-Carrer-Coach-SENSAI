@@ -90,14 +90,6 @@ const CoverLetterPreview = ({ content }) => {
           <Download className="h-4 w-4 mr-2" />
           Download .md
         </Button>
-        <Button onClick={downloadPDF} disabled={isGenerating}>
-          {isGenerating ? "Generating..." : (
-            <>
-              <Download className="h-4 w-4 mr-2" />
-              Download PDF
-            </>
-          )}
-        </Button>
       </div>
 
       <div ref={containerRef}>
