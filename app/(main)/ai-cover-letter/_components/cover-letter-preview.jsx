@@ -39,19 +39,41 @@ const CoverLetterPreview = ({ content }) => {
 
       const html2pdfModule = await import("html2pdf.js/dist/html2pdf.min.js");
       const html2pdf = html2pdfModule.default || html2pdfModule;
+      // Prefer the visible preview node; if needed clone into off-screen visible node
+      const source = containerRef.current || document.body;
 
-      // Prefer the visible preview node
-      const el = containerRef.current || document.body;
+      const ensureClone = async (elToClone) => {
+        const clone = elToClone.cloneNode(true);
+        clone.style.position = "absolute";
+        clone.style.top = "-9999px";
+        clone.style.left = "-9999px";
+        // Set content width to A4 minus left/right margins (A4 = 210mm, margins 10mm each => 190mm)
+        // Convert 190mm to px at ~96dpi: px = mm * 96 / 25.4
+        clone.style.width = Math.round((190 * 96) / 25.4) + "px";
+        clone.style.background = "white";
+        clone.style.color = "black";
+        clone.id = "cover-letter-pdf-clone";
+        document.body.appendChild(clone);
+        // allow layout to settle
+        await new Promise((r) => setTimeout(r, 80));
+        return clone;
+      };
+
+      const el = await ensureClone(source);
 
       const opt = {
-        margin: [10, 10],
+        // margins in mm (jsPDF unit = mm): top, left, bottom, right
+        margin: [7.5, 10, 7.5, 10],
         filename: "cover-letter.pdf",
         image: { type: "jpeg", quality: 0.98 },
-        html2canvas: { scale: 2, backgroundColor: "#ffffff" },
+        html2canvas: { scale: 2, backgroundColor: "#ffffff", useCORS: true },
         jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
       };
 
       await html2pdf().set(opt).from(el).save();
+
+      const cloneEl = document.getElementById("cover-letter-pdf-clone");
+      if (cloneEl) cloneEl.remove();
       toast.success("PDF downloaded");
     } catch (e) {
       console.error("PDF generation failed", e);

@@ -145,27 +145,113 @@ export async function generateQuiz() {
   `;
 
   try {
-    // ✅ Updated Gemini API call
-    const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: [{ role: "user", parts: [{ text: prompt }] }],
+    // Fetch user's previously asked questions — only the most recent questions
+    // We'll collect up to the last 10 question texts (most recent) and avoid repeating them.
+    const prevAssessments = await db.assessment.findMany({
+      where: { userId: user.id },
+      select: { questions: true, createdAt: true },
+      orderBy: { createdAt: "desc" },
+      take: 20, // fetch some recent assessments to collect at least 10 questions
     });
 
-    // Robust response extraction
-    const text = (extractResponseText(response) || "").trim();
-    const cleanedText = text.replace(/```(?:json)?\n?/g, "").trim();
-
-    // Attempt tolerant JSON parsing or structured extraction
-    const parsed = tryParseJSONFromText(cleanedText);
-    if (parsed && parsed.questions && Array.isArray(parsed.questions)) {
-      return parsed.questions;
+    const recentQuestions = [];
+    for (const a of prevAssessments) {
+      if (!a.questions) continue;
+      for (const q of a.questions) {
+        try {
+          const text = (typeof q.question === "string" ? q.question : JSON.stringify(q.question)).trim();
+          recentQuestions.push(text);
+          if (recentQuestions.length >= 10) break;
+        } catch (e) {
+          // ignore malformed entries
+        }
+      }
+      if (recentQuestions.length >= 10) break;
     }
 
-    console.warn("Could not parse AI JSON for quiz. Raw output:\n", cleanedText);
+    const prevQuestionsSet = new Set(recentQuestions.map((t) => t.replace(/\s+/g, " ").toLowerCase()));
 
-    // As a last resort, return a programmatic fallback quiz based on industry
-    const fallback = fallbackQuestionsForIndustry(user.industry, user.skills);
-    return fallback;
+    // Helper to normalize question text
+    const normalize = (s) => (s || "").trim().replace(/\s+/g, " ").toLowerCase();
+
+    // Function to call AI and extract questions
+    const callAiForQuestions = async (extraPrompt = "") => {
+      const resp = await ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: [{ role: "user", parts: [{ text: prompt + "\n" + extraPrompt }] }],
+      });
+      const text = (extractResponseText(resp) || "").trim();
+      const cleanedText = text.replace(/```(?:json)?\n?/g, "").trim();
+      const parsed = tryParseJSONFromText(cleanedText);
+      if (parsed && parsed.questions && Array.isArray(parsed.questions)) return parsed.questions;
+      return null;
+    };
+
+    // First attempt: call AI normally
+    let aiQuestions = null;
+    aiQuestions = await callAiForQuestions();
+
+    // Collect unique questions avoiding previously answered ones
+    const selected = [];
+    const seen = new Set();
+
+    if (aiQuestions && Array.isArray(aiQuestions)) {
+      for (const q of aiQuestions) {
+        const n = normalize(q.question);
+        if (!prevQuestionsSet.has(n) && !seen.has(n)) {
+          selected.push(q);
+          seen.add(n);
+        }
+        if (selected.length >= 10) break;
+      }
+    }
+
+    // If we don't have 10 unique/new questions, attempt one more AI call instructing to avoid previous questions
+    if (selected.length < 10) {
+      const prevList = Array.from(prevQuestionsSet).slice(0, 50).map((t) => `- ${t}`).join("\n");
+      const extraPrompt = `Avoid repeating the user's previously asked questions. Previously asked questions:\n${prevList}\n\nPlease generate questions that are different from the ones above.`;
+      const aiRetry = await callAiForQuestions(extraPrompt);
+      if (aiRetry && Array.isArray(aiRetry)) {
+        for (const q of aiRetry) {
+          const n = normalize(q.question);
+          if (!prevQuestionsSet.has(n) && !seen.has(n)) {
+            selected.push(q);
+            seen.add(n);
+          }
+          if (selected.length >= 10) break;
+        }
+      }
+    }
+
+    // If still short, fill with fallback industry questions (ensuring uniqueness)
+    if (selected.length < 10) {
+      const fallback = fallbackQuestionsForIndustry(user.industry, user.skills);
+      for (const q of fallback) {
+        const n = normalize(q.question);
+        if (!seen.has(n)) {
+          selected.push(q);
+          seen.add(n);
+        }
+        if (selected.length >= 10) break;
+      }
+    }
+
+    // As a last resort, if still short, include previously asked questions (but dedup locally)
+    if (selected.length < 10) {
+      // gather any AI returns (first call) and pick ones not already in seen
+      const pool = (aiQuestions || []).concat([]);
+      for (const q of pool) {
+        const n = normalize(q.question);
+        if (!seen.has(n)) {
+          selected.push(q);
+          seen.add(n);
+        }
+        if (selected.length >= 10) break;
+      }
+    }
+
+    // Ensure length 10
+    return selected.slice(0, 10);
   } catch (error) {
     console.error("Error generating quiz:", error);
     // Return a fallback instead of failing completely
